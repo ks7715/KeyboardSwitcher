@@ -1,3 +1,4 @@
+; KeyboardSwitcher v0.81
 #Requires AutoHotkey v2.0
 #SingleInstance Off
 
@@ -39,7 +40,6 @@ A_TrayMenu.Default := "Открыть настройки"           ; ← дво
 
 ; --- 2. Создание файла настроек по умолчанию, если его нет ---
 if (FileExist(iniFile) = "") {
-    ; ИСПРАВЛЕНО: Секция раскладок возвращена на законное первое место. Подсказки вычищены. Запись без BOM.
     iniText := "
 (
 [LanguageSwitch]
@@ -90,12 +90,35 @@ Key_Equal=≈
     FileAppend(iniText, iniFile, "UTF-8-RAW")
 }
 
+; --- 2.1. Удаление BOM из INI, если он появился (например, Notepad на старых Windows) ---
+; Старый Блокнот (Windows 7 / Server 2016 и т.п.) при сохранении UTF-8 всегда
+; добавляет BOM (EF BB BF). IniRead в AHK v2 после этого не видит ни одной
+; секции, и все настройки читаются как пустые. Эта функция срезает BOM.
+FixIniBom(path) {
+    try {
+        f := FileOpen(path, "r", "UTF-8-RAW")   ; RAW = не срезаем BOM при чтении
+        raw := f.Read()
+        f.Close()
+        if (SubStr(raw, 1, 1) != Chr(0xFEFF))
+            return                               ; BOM нет — ничего не делаем
+        content := SubStr(raw, 2)                ; срезаем BOM
+        fw := FileOpen(path, "w", "UTF-8-RAW")   ; пишем без BOM
+        fw.Write(content)
+        fw.Close()
+    } catch {
+        ; файл занят/недоступен — молча выходим
+    }
+}
+
 ; --- 3. Чтение настроек и динамическая инициализация горячих клавиш ---
 ReadSettingsAndInit() {
     global ruKey, enKey, fixDotMode, customAltGr, pastePlain, autoStart, iniFile, customStrings
     global currentRuKey, currentEnKey
+
+    ; Срезаем BOM (если старый Блокнот его добавил), иначе IniRead ниже вернёт пустоту
+    FixIniBom(iniFile)
     
-    ; Чистый v2 синтаксис удаления старых хоткеев из памяти при перезаписи на лету
+    ; Удаления старых хоткеев из памяти при перезаписи на лету
     if (currentRuKey != "") {
         try Hotkey("~" currentRuKey " Up", SwitchToRussian, "Off")
     }
@@ -113,7 +136,7 @@ ReadSettingsAndInit() {
     pastePlain := IniRead(iniFile, "Features", "PastePlain", "1")
     autoStart := IniRead(iniFile, "Features", "AutoStart", "0")
     
-    ; Твой оригинальный рабочий UTF-8 парсер макросов
+    ; UTF-8 парсер макросов
     try {
         fileObj := FileOpen(iniFile, "r", "UTF-8")
         isInSection := false
@@ -187,7 +210,7 @@ ReadSettingsAndInit() {
     }
 }
 
-; Твоя оригинальная горизонтальная шпаргалка над часами Windows с кнопками в скобках [ ]
+; Горизонтальная шпаргалка над часами Windows с кнопками в скобках [ ]
 WatchAltGr() {
     global isTipShown, customStrings
 
@@ -258,7 +281,8 @@ SplitIniLine(line) {
 }
 
 ReadSettingsAndInit()
-; --- 4. Проверка и гарантированное управление копиями ---
+
+; --- 4. Проверка и управление копиями ---
 myPID := DllCall("GetCurrentProcessId")
 DetectHiddenWindows(true)
 
@@ -489,13 +513,13 @@ HandleAltGrKey(index, scanCode) {
         Sleep 50
     }
 
-    ; 3. Вставляем ВЕСЬ ТЕКСТ РАЗОМ (без дробления, без Shift+Enter)
+    ; 3. Вставляем ТЕКСТ
     A_Clipboard := text
     Sleep 50
     SendEvent "{Ctrl Down}v{Ctrl Up}"
     Sleep 150 
     
-    ; 4. Возвращаем твой буфер обмена
+    ; 4. Возвращаем буфер обмена
     A_Clipboard := bak 
 }
 #HotIf
