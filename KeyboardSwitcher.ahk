@@ -1,4 +1,4 @@
-; KeyboardSwitcher v0.82
+; KeyboardSwitcher v0.83
 #Requires AutoHotkey v2.0
 #SingleInstance Off
 
@@ -411,30 +411,40 @@ ForceSwitchLang(hkl) {
 #HotIf fixDotMode = "1"
 *SC035:: {
     if GetKeyState("Shift", "P")
-        Send ","
+        SendChar(",")
     else
-        Send "."
+        SendChar(".")
 }
 #HotIf
 
 #HotIf fixDotMode = "2"
-;*>!SC035:: Send "/"
-*!SC035:: Send "/"
+*!SC035:: SendChar("/")
 *^SC035:: {
     ; В русской раскладке RAlt = AltGr (Ctrl+Alt), поэтому срабатывает и этот хоткей.
     ; Различаем по физическому состоянию правого Alt.
     if GetKeyState("RAlt", "P")
-        Send "/"
+        SendChar("/")
     else
-        Send "?"
+        SendChar("?")
 }
 *SC035:: {
     if GetKeyState("Shift", "P")
-        Send ","
+        SendChar(",")
     else
-        Send "."
+        SendChar(".")
 }
 #HotIf
+
+; Отправка символа: PostMessage только для привилегированных консолей, иначе — обычный Send
+SendChar(char) {
+    if (WinActive("ahk_class ConsoleWindowClass") && A_IsAdmin) {
+        hwnd := WinExist("A")
+        if (hwnd)
+            PostMessage(0x0102, Ord(char), 1, , "ahk_id " hwnd)
+        return
+    }
+    Send char
+}
 
 ; --- 9. Блок ввода макросов ---
 #HotIf customAltGr = "1" && GetKeyState("RAlt", "P") && !GetKeyState("LAlt", "P") && !GetKeyState("RControl", "P") && !GetKeyState("LWin", "P") && !GetKeyState("RWin", "P")
