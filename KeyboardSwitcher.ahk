@@ -1,9 +1,8 @@
-; KeyboardSwitcher v0.84
 #Requires AutoHotkey v2.0
 #SingleInstance Off
 
 ; Подсказка для иконки
-A_IconTip := "KeyboardSwitcher"
+A_IconTip := "KeyboardSwitcher v0.84"
 
 ; Запускаем проверку готовности трея в фоновом режиме (каждую секунду)
 SetTimer(EnsureTrayReady, 1000)
