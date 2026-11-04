@@ -1,18 +1,26 @@
-; KeyboardSwitcher v0.83
+; KeyboardSwitcher v0.84
 #Requires AutoHotkey v2.0
 #SingleInstance Off
 
-if (!WinExist("ahk_class Shell_TrayWnd")) {
-    while (!WinExist("ahk_class Shell_TrayWnd"))
-        Sleep 1000
-    Sleep 3000
-}
-; Принудительная перерегистрация иконки (нужна, т.к. AHK уже попытался
-; её создать при старте — и мог провалиться, пока трей не был готов)
-A_IconHidden := true
-Sleep 200
-A_IconHidden := false
+; Подсказка для иконки
 A_IconTip := "KeyboardSwitcher"
+
+; Запускаем проверку готовности трея в фоновом режиме (каждую секунду)
+SetTimer(EnsureTrayReady, 1000)
+
+EnsureTrayReady() {
+    try {
+        ; Проверяем, появилось ли окно панели задач
+        if WinExist("ahk_class Shell_TrayWnd") {           
+            SetTimer(EnsureTrayReady, 0) ; Выключаем таймер, чтобы больше не крутить проверку
+            Sleep 500 ; Даем время (500 мс) на финальную отрисовку области уведомлений (особенно важно для RDP)           
+            ; Принудительно регистрируем иконку в трее
+            A_IconHidden := true
+            Sleep 150
+            A_IconHidden := false
+        }
+    }
+}
 
 iniFile := A_ScriptDir "\KeyboardSwitcher.ini"
 taskName := "KeyboardSwitcher"
@@ -73,7 +81,7 @@ AutoStart=0
 
 [CustomAltGr]
 ; Напишите здесь любой текст, символ или целую фразу, которая будет мгновенно вставляться при зажатом Правом Альте.
-; Если вам нужно сохранить ПРОБЕЛЫ в начале или в конце строки, оберните её в кавычки, например: " ₽ с НДС 22 %"
+; Если вам нужно сохранить ПРОБЕЛЫ в начале или в конце строки, оберните её в кавычки, например: "₽ с НДС 22 %"
 ; Если оставить поле пустым — клавиша сохранит стандартное поведение Windows.
 Key_1=
 Key_2=
@@ -82,7 +90,7 @@ Key_4=
 Key_5=
 Key_6=
 Key_7=
-Key_8=" ₽"
+Key_8="₽"
 Key_9=м²
 Key_0=°
 Key_Minus=⌀
