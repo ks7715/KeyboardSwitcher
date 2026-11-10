@@ -2,7 +2,7 @@
 #SingleInstance Off
 
 ; Подсказка для иконки
-A_IconTip := "KeyboardSwitcher v0.84"
+A_IconTip := "KeyboardSwitcher v0.85"
 
 ; Запускаем проверку готовности трея в фоновом режиме (каждую секунду)
 SetTimer(EnsureTrayReady, 1000)
@@ -10,9 +10,9 @@ SetTimer(EnsureTrayReady, 1000)
 EnsureTrayReady() {
     try {
         ; Проверяем, появилось ли окно панели задач
-        if WinExist("ahk_class Shell_TrayWnd") {           
+        if WinExist("ahk_class Shell_TrayWnd") {
             SetTimer(EnsureTrayReady, 0) ; Выключаем таймер, чтобы больше не крутить проверку
-            Sleep 500 ; Даем время (500 мс) на финальную отрисовку области уведомлений (особенно важно для RDP)           
+            Sleep 500 ; Даем время (500 мс) на финальную отрисовку области уведомлений (особенно важно для RDP)
             ; Принудительно регистрируем иконку в трее
             A_IconHidden := true
             Sleep 150
@@ -33,6 +33,9 @@ global currentEnKey := ""
 ; Флаг, чтобы ToolTip не перерисовывался каждую миллисекунду в цикле
 global isTipShown := false
 
+global hashMode := "0"
+global numpadDotMode := "0"
+
 ; Глобальный массив для хранения кастомных строк (индексы 1..12 соответствуют кнопкам 1..0, -, =)
 global customStrings := Array()
 loop 12
@@ -40,9 +43,9 @@ loop 12
 
 ; --- 1. Кастомизация контекстного меню иконки в трее (возле часов) ---
 A_TrayMenu.Delete()
-A_TrayMenu.Add("Открыть настройки", (*) => OpenSettingsAndWatch()) 
+A_TrayMenu.Add("Открыть настройки", (*) => OpenSettingsAndWatch())
 A_TrayMenu.Add()                                    ; ← разделитель
-A_TrayMenu.Add("Выход", (*) => ExitApp()) 
+A_TrayMenu.Add("Выход", (*) => ExitApp())
 A_TrayMenu.Default := "Открыть настройки"           ; ← двойной клик по иконке = открыть настройки
 
 ; --- 2. Создание файла настроек по умолчанию, если его нет ---
@@ -66,6 +69,12 @@ EnglishKey=LShift
 ;       - Зажатый ЛЮБОЙ Alt + клавиша точки = ВСЕГДА выводит косую черту (/)
 ;       - Зажатый ЛЮБОЙ Ctrl + клавиша точки = ВСЕГДА выводит знак вопроса (?)
 FixDotMode=0
+
+; 1 - Всегда вводить # вместо № в русской раскладке (Shift+3), 0 - стандартное поведение Windows.
+HashInsteadOfNumero=0
+
+; 1 - На цифровой клавиатуре клавиша "точка" всегда вводит ".", а Shift+эта клавиша вводит ",". 0 - стандартное поведение.
+NumpadDotMode=0
 
 ; Включение кастомных макросов, спецсимволов или фраз на Правый Alt (AltGr) независимо от режимов точки:
 ; 1 - Включено (по умолчанию), 0 - Выключено.
@@ -102,7 +111,8 @@ Key_Equal=≈
 ReadSettingsAndInit() {
     global ruKey, enKey, fixDotMode, customAltGr, pastePlain, autoStart, iniFile, customStrings
     global currentRuKey, currentEnKey
-    
+    global hashMode, numpadDotMode
+
     ; Удаления старых хоткеев из памяти при перезаписи на лету
     if (currentRuKey != "") {
         try Hotkey("~" currentRuKey " Up", SwitchToRussian, "Off")
@@ -110,17 +120,19 @@ ReadSettingsAndInit() {
     if (currentEnKey != "") {
         try Hotkey("~" currentEnKey " Up", SwitchToEnglish, "Off")
     }
-    
+
     loop 12
         customStrings[A_Index] := ""
-        
+
     ruKey := IniRead(iniFile, "LanguageSwitch", "RussianKey", "")
     enKey := IniRead(iniFile, "LanguageSwitch", "EnglishKey", "")
     fixDotMode := IniRead(iniFile, "Features", "FixDotMode", "0")
+    hashMode := IniRead(iniFile, "Features", "HashInsteadOfNumero", "0")
+    numpadDotMode := IniRead(iniFile, "Features", "NumpadDotMode", "0")
     customAltGr := IniRead(iniFile, "Features", "CustomAltGr", "1")
     pastePlain := IniRead(iniFile, "Features", "PastePlain", "1")
     autoStart := IniRead(iniFile, "Features", "AutoStart", "0")
-    
+
     ; UTF-8 парсер макросов
     try {
         fileObj := FileOpen(iniFile, "r", "UTF-8")
@@ -140,11 +152,11 @@ ReadSettingsAndInit() {
                 parts := SplitIniLine(line)
                 keyName := StrLower(parts[1])
                 val := parts[2]
-                
+
                 if (SubStr(val, 1, 1) = '"' && SubStr(val, -1) = '"' && StrLen(val) >= 2) {
                     val := SubStr(val, 2, StrLen(val) - 2)
                 }
-                
+
                 if (keyName = "key_1")
                     customStrings[1] := val
                 else if (keyName = "key_2")
@@ -173,20 +185,20 @@ ReadSettingsAndInit() {
         }
         fileObj.Close()
     }
-    
+
     validRu := (ruKey = "0" || ruKey = "") ? "" : ruKey
     validEn := (enKey = "0" || enKey = "") ? "" : enKey
-    
+
     currentRuKey := validRu
     currentEnKey := validEn
-    
+
     if (validRu != "") {
         try Hotkey("~" validRu " Up", SwitchToRussian, "On")
     }
     if (validEn != "") {
         try Hotkey("~" validEn " Up", SwitchToEnglish, "On")
     }
-    
+
     if (customAltGr = "1") {
         SetTimer WatchAltGr, 50
     } else {
@@ -201,10 +213,10 @@ WatchAltGr() {
 
     ; RAlt зажат, а Ctrl / LAlt / Shift — НЕТ
     isPressed := GetKeyState("RAlt", "P")
-      && !GetKeyState("LAlt", "P")
-      && !GetKeyState("RControl", "P")
-      && !GetKeyState("LShift", "P")
-      && !GetKeyState("RShift", "P")
+    && !GetKeyState("LAlt", "P")
+    && !GetKeyState("RControl", "P")
+    && !GetKeyState("LShift", "P")
+    && !GetKeyState("RShift", "P")
 
     if (isPressed) {
         if (!isTipShown) {
@@ -248,13 +260,14 @@ WatchAltGr() {
         }
     }
 }
+
 SplitIniLine(line) {
     pos := InStr(line, "=")
     if (pos = 0)
         return [line, ""]
     key := Trim(SubStr(line, 1, pos - 1))
     val := SubStr(line, pos + 1)
-    
+
     valTrim := Trim(val)
     if (!(SubStr(valTrim, 1, 1) = '"' && SubStr(valTrim, -1) = '"')) {
         if (InStr(val, ";") && !InStr(val, " `;")) {
@@ -277,20 +290,22 @@ for proc in ComObjGet("winmgmts:").ExecQuery("Select * from Win32_Process Where 
             WinClose("ahk_pid " proc.ProcessId " ahk_class AutoHotkey")
             Sleep(200)
         }
-        
-        checkStillExists := RunWait(A_ComSpec " /c tasklist /FI `"PID eq " proc.ProcessId "`" | find `"" proc.ProcessId "`"", , "Hide")
+
+        checkStillExists := RunWait(A_ComSpec " /c tasklist /FI `"PID eq " proc.ProcessId "`" | find `"" proc.ProcessId "`"", ,
+            "Hide")
         if (checkStillExists = 0) {
             errCode := RunWait(A_ComSpec " /c taskkill /F /PID " proc.ProcessId, , "Hide")
-            
-           if (errCode != 0) {
-              if (!A_IsAdmin) {
-                MsgBox("Предыдущая копия программы запущенна ОТ ИМЕНИ АДМИНИСТРАТОРА!`n`nЧтобы перезапустить программу и обновить настройки, запустите этот файл вручную ОТ ИМЕНИ АДМИНИСТРАТОРА.", "Требуется запуск от Админа", 48)
-                ExitApp
-            } else {
-              MsgBox("Не удалось закрыть предыдущую копию (PID " proc.ProcessId ").", "Ошибка", 48)
-              ; опционально ExitApp
+
+            if (errCode != 0) {
+                if (!A_IsAdmin) {
+                    MsgBox(
+                        "Предыдущая копия программы запущенна ОТ ИМЕНИ АДМИНИСТРАТОРА!`n`nЧтобы перезапустить программу и обновить настройки, запустите этот файл вручную ОТ ИМЕНИ АДМИНИСТРАТОРА.",
+                        "Требуется запуск от Админа", 48)
+                    ExitApp
+                } else {
+                    MsgBox("Не удалось закрыть предыдущую копию (PID " proc.ProcessId ").", "Ошибка", 48)
+                }
             }
-          }
         }
     }
 }
@@ -315,13 +330,16 @@ ManageTaskScheduler() {
 
         if (needCreate) {
             if (!A_IsAdmin) {
-                MsgBox("В настройках изменен AutoStart, требуется создание задачи автозагрузки.`n`nПрограмма откроет папку в Проводнике ...", "Требуется запуск от Admina", 48)
+                MsgBox(
+                    "В настройках изменен AutoStart, требуется создание задачи автозагрузки.`n`nПрограмма откроет папку в Проводнике ...",
+                    "Требуется запуск от Admina", 48)
                 Run("explorer.exe /select,`"" exePath "`"")
                 ExitApp
             }
 
             cmd := 'schtasks /create /tn "' taskName '" /tr "\"' exePath '\"" /sc onlogon /rl highest /f'
-            psCmd := '$s = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries; Set-ScheduledTask -TaskName "' taskName '" -Settings $s'
+            psCmd :=
+                '$s = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries; Set-ScheduledTask -TaskName "' taskName '" -Settings $s'
 
             exitCreate := RunWait(A_ComSpec " /c " cmd, , "Hide")
             exitPs := RunWait("powershell -Command " psCmd, , "Hide")
@@ -329,7 +347,8 @@ ManageTaskScheduler() {
             if (exitCreate != 0) {
                 MsgBox("schtasks /create вернул код " exitCreate " — задача НЕ создана.", "Ошибка", 48)
             } else if (exitPs != 0) {
-                MsgBox("Задача создана, но настройки батареи не применены (PowerShell код " exitPs ").`nЗадача может не запускаться от батареи.", "Предупреждение", 48)
+                MsgBox("Задача создана, но настройки батареи не применены (PowerShell код " exitPs ").`nЗадача может не запускаться от батареи.",
+                    "Предупреждение", 48)
             } else if (taskExists = "") {
                 MsgBox("Программа успешно добавлена в автозагрузку Планировщика задач!", "Успешно", 64)
             }
@@ -337,7 +356,9 @@ ManageTaskScheduler() {
     } else if (autoStart = "0") {
         if (taskExists != "") {
             if (!A_IsAdmin) {
-                MsgBox("Вы отключили AutoStart в настройках, но задача автозагрузки осталась в системе.`n`nПрограмма откроет папку в Проводнике ...", "Требуется запуск от Admina", 48)
+                MsgBox(
+                    "Вы отключили AutoStart в настройках, но задача автозагрузки осталась в системе.`n`nПрограмма откроет папку в Проводнике ...",
+                    "Требуется запуск от Admina", 48)
                 Run("explorer.exe /select,`"" exePath "`"")
                 ExitApp
             }
@@ -355,12 +376,12 @@ ManageTaskScheduler()
 ; --- 6. Функция динамического отслеживания Блокнота ---
 OpenSettingsAndWatch() {
     global iniFile, autoStart
-    oldAutoStart := autoStart 
-    
+    oldAutoStart := autoStart
+
     RunWait('notepad.exe "' . iniFile . '"')
-    
+
     ReadSettingsAndInit()
-    
+
     if (autoStart != oldAutoStart) {
         ManageTaskScheduler()
     }
@@ -370,11 +391,11 @@ OpenSettingsAndWatch() {
 SwitchToRussian(hk) {
     cleanKey := RegExReplace(hk, "[~*$!^+]")
     cleanKey := StrReplace(cleanKey, " Up")
-    
+
     sysKey := cleanKey
     if (StrCompare(cleanKey, "LShift", false) = 0 || StrCompare(cleanKey, "RShift", false) = 0)
         sysKey := "Shift"
-        
+
     if (StrCompare(A_PriorKey, sysKey, false) = 0 || StrCompare(A_PriorKey, cleanKey, false) = 0) {
         ForceSwitchLang(0x04190419)
     }
@@ -383,11 +404,11 @@ SwitchToRussian(hk) {
 SwitchToEnglish(hk) {
     cleanKey := RegExReplace(hk, "[~*$!^+]")
     cleanKey := StrReplace(cleanKey, " Up")
-    
+
     sysKey := cleanKey
     if (StrCompare(cleanKey, "LShift", false) = 0 || StrCompare(cleanKey, "RShift", false) = 0)
         sysKey := "Shift"
-        
+
     if (StrCompare(A_PriorKey, sysKey, false) = 0 || StrCompare(A_PriorKey, cleanKey, false) = 0) {
         ForceSwitchLang(0x04090409)
     }
@@ -397,7 +418,7 @@ ForceSwitchLang(hkl) {
     hwnd := WinExist("A")
     if (!hwnd)
         return
-        
+
     ; 1. Безопасно пытаемся отправить в элемент с фокусом (список файлов, поле ввода)
     try {
         focusClass := ControlGetFocus("A")
@@ -409,13 +430,13 @@ ForceSwitchLang(hkl) {
             }
         }
     }
-    
+
     ; 2. Если поля ввода нет, отправляем в само окно
     PostMessage(0x0050, 0, hkl, , "ahk_id " hwnd)
 }
 
 ; --- 8. Обработка режимов FixDotMode ---
-#HotIf fixDotMode = "1"
+#HotIf (fixDotMode = "1")
 *SC035:: {
     if GetKeyState("Shift", "P")
         SendChar(",")
@@ -424,7 +445,7 @@ ForceSwitchLang(hkl) {
 }
 #HotIf
 
-#HotIf fixDotMode = "2"
+#HotIf (fixDotMode = "2")
 *!SC035:: SendChar("/")
 *^SC035:: {
     ; В русской раскладке RAlt = AltGr (Ctrl+Alt), поэтому срабатывает и этот хоткей.
@@ -442,19 +463,53 @@ ForceSwitchLang(hkl) {
 }
 #HotIf
 
-; Отправка символа: PostMessage только для привилегированных консолей, иначе — обычный Send
-SendChar(char) {
+; Отправка символа: PostMessage для привилегированных консолей, иначе — Send/SendText
+; asText := true → использовать SendText (нужно для символов, которых нет в текущей раскладке, например # в RU)
+SendChar(char, asText := false) {
     if (WinActive("ahk_class ConsoleWindowClass") && A_IsAdmin) {
         hwnd := WinExist("A")
         if (hwnd)
             PostMessage(0x0102, Ord(char), 1, , "ahk_id " hwnd)
         return
     }
-    Send char
+    if (asText)
+        SendText(char)
+    else
+        SendEvent("{Text}" char) ; {Text} игнорирует зажатый Shift
 }
 
+; --- 8b. Опция: # вместо № в русской раскладке ---
+#HotIf (hashMode = "1" && !GetKeyState("RAlt", "P"))
+$+sc004:: SendChar("#", true)
+#HotIf
+
+; --- 8c. Опция: точка на цифровой клавиатуре ---
+#HotIf (numpadDotMode = "1")
+$*sc053:: {
+    ; NumLock выключен → стандартное поведение (Delete), не трогаем
+    if !GetKeyState("NumLock", "T") {
+        Send "{Blind}{sc053}"
+        return
+    }
+    ; Пропускаем шорткаты с Ctrl / Alt / Win
+    if GetKeyState("Ctrl", "P") || GetKeyState("Alt", "P")
+    || GetKeyState("LWin", "P") || GetKeyState("RWin", "P") {
+        Send "{Blind}{sc053}"
+        return
+    }
+
+    ; NumLock включён: Shift → запятая, иначе → точка
+    if GetKeyState("Shift", "P") {
+        SendChar(",")
+    } else {
+        SendChar(".")
+    }
+}
+#HotIf
+
 ; --- 9. Блок ввода макросов ---
-#HotIf customAltGr = "1" && GetKeyState("RAlt", "P") && !GetKeyState("LAlt", "P") && !GetKeyState("RControl", "P") && !GetKeyState("LWin", "P") && !GetKeyState("RWin", "P")
+#HotIf (customAltGr = "1" && GetKeyState("RAlt", "P") && !GetKeyState("LAlt", "P") && !GetKeyState("RControl", "P") &&
+!GetKeyState("LWin", "P") && !GetKeyState("RWin", "P"))
 *$sc002:: HandleAltGrKey(1, "sc002")
 *$sc003:: HandleAltGrKey(2, "sc003")
 *$sc004:: HandleAltGrKey(3, "sc004")
@@ -480,19 +535,19 @@ HandleAltGrKey(index, scanCode) {
 #HotIf
 
 ; --- 10. Умная вставка текста ---
-#HotIf pastePlain = "1"
+#HotIf (pastePlain = "1")
 ^!v:: {
     KeyWait "Ctrl"
     KeyWait "Alt"
     text := A_Clipboard
     if (text == "")
         return
-        
+
     bak := ClipboardAll()
 
     ; 1. Считаем ВСЕ буквы в тексте (игнорируем смайлики и знаки)
     ruCount := 0, enCount := 0
-    Loop Parse, text {
+    loop parse, text {
         if (A_LoopField ~= "[а-яА-ЯёЁ]")
             ruCount++
         else if (A_LoopField ~= "[a-zA-Z]")
@@ -512,9 +567,9 @@ HandleAltGrKey(index, scanCode) {
     A_Clipboard := text
     Sleep 50
     SendEvent "{Ctrl Down}v{Ctrl Up}"
-    Sleep 150 
-    
+    Sleep 150
+
     ; 4. Возвращаем буфер обмена
-    A_Clipboard := bak 
+    A_Clipboard := bak
 }
 #HotIf
